@@ -34,7 +34,7 @@ class Tweet(MRJob):
         if Tweet.viewingBTC_Price:
             BTCDate, openPrice, high, low, closePrice, adjClose, volume = fields[0], fields[1], fields[2], fields[3], fields[4], fields[5], fields[6]
             #yield BTCDate, {"openPrice": openPrice, "closePrice": closePrice} 
-            Tweet.BTCPrices[BTCDate] = {"openPrice": openPrice, "closePrice": closePrice} 
+            Tweet.BTCPrices[BTCDate] = {"openPrice": openPrice, "closePrice": closePrice, "high": high, "low": low, "volume": volume} 
             #yield BTCDate, Tweet.BTCPrices
 
 
@@ -77,7 +77,9 @@ class Tweet(MRJob):
                 date = date_str
             except:
                 return 
-            text = re.sub(r'[^\x00-\x7F]+', '', fields[9])
+            PUNC_RE = re.compile(r"[^a-z]")
+            text = re.sub(PUNC_RE, ' ', fields[9].lower())
+            text = re.sub(r'[^\x00-\x7F]+', '', text)
             # Remove URLs
             text = re.sub(r'http\S+', '', text)
             # Convert to lowercase
@@ -90,8 +92,6 @@ class Tweet(MRJob):
             words = text.split()
             words = [word for word in words if word not in stop_words]
             cleaned_text = ' '.join(words)
-            PUNC_RE = re.compile(r"[^a-z,]")
-            cleaned_text = re.sub(PUNC_RE, ' ', cleaned_text)
             text = cleaned_text
 
             hashtags = re.findall(r'#\w+', text)  # get hashtags in description
@@ -147,9 +147,16 @@ class Tweet(MRJob):
         #yield key, Tweet.BTCPrices
         if key not in Tweet.BTCPrices:
             return
+        
+        date_obj = datetime.strptime(key, "%Y-%m-%d").date()
+        next_day = date_obj + timedelta(days=1)   #date obj
+        next_day = next_day.strftime("%Y-%m-%d") #string
 
-        openPrice = Tweet.BTCPrices[key]['openPrice']
-        closePrice = Tweet.BTCPrices[key]['closePrice']
+        openPrice = Tweet.BTCPrices[next_day]['openPrice']
+        closePrice = Tweet.BTCPrices[next_day]['closePrice']
+        high = Tweet.BTCPrices[next_day]['high']
+        low = Tweet.BTCPrices[next_day]['low']
+        volume = Tweet.BTCPrices[next_day]['volume']
         for tweet in values:
             user_name = tweet['user_name']
             user_location = tweet['user_location']
@@ -168,7 +175,10 @@ class Tweet(MRJob):
                 "text": text,
                 "hashtags": hashtags,
                 "openPrice": openPrice,
-                "closePrice": closePrice
+                "closePrice": closePrice,
+                "high": high,
+                "low": low,
+                "volume": volume
             }
             #yield key, tweet
     
@@ -181,16 +191,14 @@ class Tweet(MRJob):
 
         # tweet_count = sum(1 for _ in values)
         # yield key, tweet_count
-        date_obj = datetime.strptime(key, "%Y-%m-%d").date()
-        next_day = date_obj + timedelta(days=1)   #date obj
-        next_day = next_day.strftime("%Y-%m-%d") #string
+        # date_obj = datetime.strptime(key, "%Y-%m-%d").date()
+        # next_day = date_obj + timedelta(days=1)   #date obj
+        # next_day = next_day.strftime("%Y-%m-%d") #string
         store = Counter()
-        openPrice = float(Tweet.BTCPrices[next_day]['openPrice'])
-        closePrice = float(Tweet.BTCPrices[next_day]['closePrice'])
+        # openPrice = float(Tweet.BTCPrices[next_day]['openPrice'])
+        # closePrice = float(Tweet.BTCPrices[next_day]['closePrice'])
         for val in values:
-            words = re.sub(r'#\w+', '', val["text"])  # get hashtags in description
-            words = words.split()
-            store.update(words)
+            
             # extract the relevant fields from the tweet
             # user_location = tweet['user_location']
             # user_description = tweet['user_description']
@@ -204,6 +212,19 @@ class Tweet(MRJob):
             # hashtags = tweet['hashtags']
             # source = tweet['source']
             # is_retweet = tweet['is_retweet']
+            openPrice = float(val["openPrice"])     
+            closePrice = float(val["closePrice"])
+            high = float(val["high"])
+            low = float(val["low"])
+            volume = float(val["volume"])
+
+            words = re.sub(r'#\w+', '', val["text"])  # rm hashtags in description
+            words = words.split()
+            #you can use logic here to say filter: ex-> only add tweet text to store if they have 1000 < followers
+            store.update(words)
+            
+
+            
 
         word_count = sorted(store.items(), key=lambda x: x[1])#, reverse=True)   # sort dict
         # lower_bound = int(len(word_count) * 0.4)
@@ -211,7 +232,13 @@ class Tweet(MRJob):
         # word_count = dict(sorted_word_count[lower_bound:upper_bound])
         word_count = dict(word_count)
         word_count = {k: v for k, v in word_count.items() if v >= 3}  # only include words with 3 or more count 
-        yield {"TweetDate": key, "OpenPrice - ClosePrice for next day": (openPrice-closePrice)}, {"word_count": word_count }
+
+        high = format(high-openPrice, '.2f')
+        low = format(low-openPrice, '.2f')
+        volume = format(volume, '.2f')
+        diff = format(closePrice-openPrice, '.2f')
+
+        yield {"TweetDate": key, "OpenPrice - ClosePrice for next day": diff}, {"high": high, "low": low, "volume": volume, "word_count": word_count}
 
         #yield key, text
         # for tweet in values:
