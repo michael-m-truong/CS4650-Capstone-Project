@@ -3,7 +3,7 @@ from mrjob.step import MRStep
 from datetime import datetime, timedelta
 import csv
 import re
-import emoji
+#import emoji
 import math            # for some stupid reason its the main csv file its floats instead of ints for followers
 from collections import Counter
 # import nltk
@@ -19,7 +19,11 @@ class Tweet(MRJob):
         return [
             MRStep(mapper=self.mapper,
                 reducer=self.shuffler),
-            MRStep(reducer=self.reducer)
+            MRStep(reducer=self.reducer),
+            MRStep(mapper=self.mapper2,
+                reducer=self.reducer2),
+            #MRStep(mapper=self.mapper3)
+             #    reducer=self.reducer2)
         ]
     
     def mapper(self, _, line):
@@ -236,14 +240,89 @@ class Tweet(MRJob):
         high = format(high-openPrice, '.2f')
         low = format(low-openPrice, '.2f')
         volume = format(volume, '.2f')
-        diff = format(closePrice-openPrice, '.2f')
+        #diff = format(closePrice-openPrice, '.2f')
 
-        yield {"TweetDate": key, "OpenPrice - ClosePrice for next day": diff}, {"high": high, "low": low, "volume": volume, "word_count": word_count}
+        yield key, {"open_close_diff_nextday": (closePrice-openPrice), "word_count": word_count, "high": high, "low": low, "volume": volume }
 
         #yield key, text
         # for tweet in values:
         #     yield key, "test"
 
+    def mapper2(self, date, vals):
+
+        #yield key, val
+        open_close_diff_nextday = vals["open_close_diff_nextday"]
+        high = vals["high"]
+        low = vals["low"]
+        volume = vals["volume"]
+        word_counts = vals["word_count"]
+        #yield date, word_counts
+        for word, count in word_counts.items():
+            yield word, {"open_close_diff_nextday": open_close_diff_nextday, "date": date, "word_count": word_counts[word], "high": high, "low": low, "volume": volume}
+        #for word, count in word_counts.items():
+
+    def reducer2(self, word, vals):
+        #open_close_diff_nextday = vals["open_close_diff_nextday"]
+        #date = vals["date"]
+        #word_count = vals["word_count"]
+        datesPerWord = 0
+        totalWordCount = 0
+        maxDiff = float('-inf')
+        minDiff = float('inf')
+        totalHigh = 0
+        totalLow = 0
+        maxHigh = float('-inf')
+        minLow = float('inf')
+        totalVolume = 0
+        open_close_DiffTotal = 0
+        #yield word, {"wordInDate": 1, "date": date, "open_close_diff_nextday": open_close_diff_nextday, "word_count": word_count}
+        for x in vals:
+            datesPerWord += 1
+            totalWordCount += x['word_count']
+            open_close_DiffTotal += x["open_close_diff_nextday"]
+            totalHigh += float(x["high"])
+            totalLow += float(x["low"])
+            totalVolume += float(x["volume"])
+            maxDiff = max(x["open_close_diff_nextday"], maxDiff)
+            minDiff = min(x["open_close_diff_nextday"], minDiff)
+            maxHigh = max(float(x["high"]), maxHigh)
+            minLow = min(float(x["low"]), minLow)
+            
+
+        maxDiff = format(maxDiff, '.2f')
+        minDiff = format(minDiff, '.2f')
+        maxHigh = format(maxHigh, '.2f')
+        minLow = format(minLow, '.2f')
+        averageDiff = format((open_close_DiffTotal / datesPerWord), '.2f')
+        averageHigh = format((totalHigh / datesPerWord), '.2f')
+        averageLow = format((totalLow / datesPerWord), '.2f')
+        #averageVolume = format((totalVolume / datesPerWord), '.2f')
+        averageVolume = totalVolume / datesPerWord
+        averageVolume = f"{averageVolume:,.0f}"  #format with commas
+
+
+        yield word, {"averageDiff": averageDiff, "maxDiff": maxDiff, "minDiff": minDiff, "averageHigh": averageHigh, "maxHigh": maxHigh, "averageLow": averageLow, "minLow": minLow, "averageVolume": averageVolume, "totalWordCount": totalWordCount}
+        #yield word, {"datesPerWord": datesPerWord, "totalWordCount": totalWordCount, }
+        #yield word, {"wordInDate": x, "date": date, "open_close_diff_nextday": open_close_diff_nextday, "word_count": word_count}
+
+    # def reducer2(self, word, vals):
+    #     datesPerWord = 0
+    #     open_close_diff_total = 0
+    #     #total_word
+    #     maxRise = float('-inf')
+    #     maxDrop = float('inf')
+    #     for totals in vals:
+    #         #word_count = vals["word_count"]
+    #         maxRise = max(totals["open_close_diff_nextday"], maxRise)
+    #         maxDrop = min(totals["open_close_diff_nextday"], maxDrop)
+    #         datesPerWord += totals["wordInDate"]
+    #         open_close_diff_total += totals["open_close_diff_nextday"]
+
+    #     maxRise = format(maxRise, '.2f')
+    #     maxDrop = format(maxDrop, '.2f')
+    #     averageDiff = format((open_close_diff_total / datesPerWord), '.2f')
+
+    #     yield word, {"AverageDiff": averageDiff, "maxRise": maxRise, "maxDrop": maxDrop}
 
 if __name__ == '__main__':
     Tweet.run()
